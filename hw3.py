@@ -170,7 +170,7 @@ async def analyze_companies(agent: Any, companies: dict[str, list[Any]]) -> dict
             content = result["messages"][-1].content
             data = _parse_json(content)
             if not data or "points" not in data:
-                return name, {"points": {}, "summary": f"无法解析模型输出: {content[:200]}"}
+                return name, {"points": {}, "summary": f"Failed to parse model output: {content[:200]}"}
             points = {}
             for k, v in data["points"].items():
                 try:
@@ -181,11 +181,10 @@ async def analyze_companies(agent: Any, companies: dict[str, list[Any]]) -> dict
                     points[p] = str(v).upper()
             return name, {"points": points, "summary": str(data.get("summary", ""))}
         except Exception as exc:
-            return name, {"points": {}, "summary": f"Agent 出错: {exc}"}
+            return name, {"points": {}, "summary": f"Agent error: {exc}"}
 
     results = await asyncio.gather(*(analyze_one(n, t) for n, t in companies.items()))
     return dict(results)
-
 
 # Everything below is provided runner/scoring code. No edits are needed.
 # Your code must read company data only through these tools: do not open
