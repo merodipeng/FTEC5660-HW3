@@ -189,6 +189,7 @@ names and wording, and scores your 3 points only.
     *   *Evidence*: `orders` and `monthly_costs` tables (filtered by year).
 
 ### Design
+
 **Agent Architecture Visualization:**
 
 ```mermaid
@@ -209,6 +210,7 @@ graph TD
     
     style B fill:#f9f,stroke:#333,stroke-width:2px
     style I fill:#bbf,stroke:#333,stroke-width:2px
+```
 
 **Description:**
 The agent is built using LangChain and the DeepSeek `deepseek-v4-flash` model. First, `build_agent()` initializes the LLM with `temperature=0` to ensure deterministic and accurate verdicts. Then, for each company, `analyze_companies()` creates an isolated LangChain tool-calling agent, providing access to the 4 standard tools (`list_documents`, `read_document`, `sql_query`, `interview`). The system prompt explicitly routes the agent to use only the `sql_query` tool, instructing the LLM to write SQL queries to calculate revenues, costs, and margins. This ensures all math is done by SQLite rather than the model's "mental math". Finally, the agent is forced to output a strict JSON object containing the PASS/FAIL verdicts and a short explanation. The `asyncio.gather` function is used to run analyses for all companies in parallel to save time.
