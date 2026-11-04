@@ -157,7 +157,6 @@ async def analyze_companies(agent: Any, companies: dict[str, list[Any]]) -> dict
     You may analyse companies in parallel (e.g. ``asyncio.gather``).
     """
     ### YOUR CODE HERE
-async def analyze_companies(agent: Any, companies: dict[str, list[Any]]) -> dict[str, dict[str, Any]]:
     from langchain.agents import create_agent
 
     async def analyze_one(name: str, tools: list[Any]) -> tuple[str, dict[str, Any]]:
