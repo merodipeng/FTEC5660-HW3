@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import csv
 import json
+import re
 import sqlite3
 import threading
 import zlib
@@ -57,7 +58,7 @@ def load_env_file(path: Path = Path(".env")) -> None:
 
 # Choose any 3 of the 15 points, e.g. CHOSEN_POINTS = [1, 7, 15]. Your agent
 # gives a PASS or FAIL verdict on these 3 points only, with your own rule for each.
-CHOSEN_POINTS: list[int] = []  ### YOUR CODE HERE
+CHOSEN_POINTS: list[int] = [1, 5, 6]  ### YOUR CODE HERE
 
 
 def build_agent() -> Any:
@@ -72,6 +73,50 @@ def build_agent() -> Any:
     you will probably create one tool-calling agent per company there.
     """
     ### YOUR CODE HERE
+    from langchain_deepseek import ChatDeepSeek
+
+    return ChatDeepSeek(
+        model=MODEL_NAME,
+        temperature=0,
+    )
+
+
+SYSTEM_PROMPT = """
+You are a stock analysis Agent. You must ONLY use the sql_query tool to query the company database and evaluate the following three Fisher points.
+
+[Point 1: Market Potential]
+Query the revenue for 2023, 2024, and 2025 (SUM of amount from the orders table, in thousands USD).
+Rule: If 2023 < 2024 < 2025 AND the 2025 revenue growth rate is >= 5%, verdict PASS; otherwise FAIL.
+
+[Point 5: Worthwhile Profit Margin]
+Query the 2025 revenue and 2025 total cost (cost_of_sales + selling_admin + research_development from monthly_costs).
+Calculate operating margin = (Revenue - Total Cost) / Revenue * 100%.
+Query the company's industry operating_margin_pct from industry_medians.
+Rule: If the company's operating margin >= the industry median, verdict PASS; otherwise FAIL.
+
+[Point 6: Maintaining or Improving Margins]
+Calculate the operating margin for the most recent 4 quarters (2025-07 to 2026-06) and the prior 4 quarters (2024-07 to 2025-06).
+Rule: If recent_margin >= prior_margin - 1.0%, verdict PASS; otherwise FAIL.
+
+All sums and ratios must be calculated using SQL, never guess the numbers.
+You MUST output ONLY a strict JSON object at the end. Do not include Markdown code blocks or extra text.
+Format:
+{"points": {"1": "PASS", "5": "FAIL", "6": "PASS"}, "summary": "Two or three sentences explaining the verdicts based on the data."}
+"""
+
+
+def _parse_json(text: str) -> dict | None:
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except json.JSONDecodeError:
+                return None
     return None
 
 
@@ -109,8 +154,37 @@ async def analyze_companies(agent: Any, companies: dict[str, list[Any]]) -> dict
     You may analyse companies in parallel (e.g. ``asyncio.gather``).
     """
     ### YOUR CODE HERE
-    _ = agent
-    return {name: {"points": {}, "summary": ""} for name in companies}
+async def analyze_companies(agent: Any, companies: dict[str, list[Any]]) -> dict[str, dict[str, Any]]:
+    from langchain.agents import create_agent
+
+    async def analyze_one(name: str, tools: list[Any]) -> tuple[str, dict[str, Any]]:
+        try:
+            company_agent = create_agent(
+                agent,
+                tools=tools,
+                system_prompt=SYSTEM_PROMPT,
+            )
+            result = await company_agent.ainvoke({
+                "messages": [("user", f"Analyze Fisher points 1, 5, and 6 for the company '{name}' and output the JSON as instructed.")]
+            })
+            content = result["messages"][-1].content
+            data = _parse_json(content)
+            if not data or "points" not in data:
+                return name, {"points": {}, "summary": f"无法解析模型输出: {content[:200]}"}
+            points = {}
+            for k, v in data["points"].items():
+                try:
+                    p = int(k)
+                except (TypeError, ValueError):
+                    continue
+                if p in (1, 5, 6):
+                    points[p] = str(v).upper()
+            return name, {"points": points, "summary": str(data.get("summary", ""))}
+        except Exception as exc:
+            return name, {"points": {}, "summary": f"Agent 出错: {exc}"}
+
+    results = await asyncio.gather(*(analyze_one(n, t) for n, t in companies.items()))
+    return dict(results)
 
 
 # Everything below is provided runner/scoring code. No edits are needed.
